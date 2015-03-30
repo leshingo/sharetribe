@@ -1917,6 +1917,7 @@ fi:
       subtotal: "Välisumma:"
       shipping-price: "Postikulut:"
       total: "Loppusumma:"
+    unit_price: "Yksikköhinta: %{unit_price}"
     quanity: "Määrä: %{quantity}"
   unit:
     day: päivä
