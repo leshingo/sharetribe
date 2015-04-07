@@ -24,7 +24,7 @@ module ListingService::API
     def create(community_id:, opts:)
       Result::Success.new(ShapeStore.create(
         community_id: community_id,
-        opts: opts
+        opts: name_to_ascii(opts)
       ))
     end
 
@@ -34,12 +34,21 @@ module ListingService::API
         listing_shape_id: listing_shape_id
       }
 
-      Maybe(ShapeStore.update(find_opts.merge(opts: opts))).map { |shape|
+      Maybe(ShapeStore.update(find_opts.merge(opts: name_to_ascii(opts)))).map { |shape|
         Result::Success.new(shape)
       }.or_else {
         Result::Error.new("Can not find listing shape for #{find_opts}")
       }
     end
 
+    private
+
+    def name_to_ascii(opts)
+      if opts[:basename]
+        opts.merge(name: opts[:basename].to_url).except(:basename)
+      else
+        opts
+      end
+    end
   end
 end

@@ -97,6 +97,21 @@ describe ListingService::API::Shapes do
         expect(units[1][:translation_key]).to eql('my.custom.units.translation')
       end
     end
+
+    context "failure" do
+      it "validates custom unit" do
+        expect { create_shape(
+          units: [
+            {type: :custom}
+          ]
+        ) }.to raise_error(ArgumentError)
+      end
+
+      it "validates the uniqueness of the name" do
+        expect(create_shape(name: "selling").success).to eq true
+        expect { create_shape(name: "selling") }.to raise_error(ArgumentError)
+      end
+    end
   end
 
   describe "#get" do

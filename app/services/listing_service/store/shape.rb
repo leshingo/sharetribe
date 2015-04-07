@@ -12,7 +12,7 @@ module ListingService::Store::Shape
     [:units, :array, default: []], # Mandatory only if price_enabled
     [:price_quantity_placeholder, one_of: [nil, :mass, :time, :long_time]], # TODO TEMP
     [:sort_priority, :fixnum, default: 0],
-    [:basename, :string, :mandatory]
+    [:name, :string, :mandatory]
   )
 
   Shape = EntityUtils.define_builder(
@@ -24,7 +24,7 @@ module ListingService::Store::Shape
     [:transaction_process_id, :fixnum, :mandatory],
     [:units, :array, :mandatory],
     [:shipping_enabled, :bool, :mandatory],
-    [:name, :string, :mandatory],
+    [:name, :string, :mandatory], # community_id & name combination must be unique
     [:sort_priority, :fixnum, default: 0],
     [:price_quantity_placeholder, :to_symbol, one_of: [nil, :mass, :time, :long_time]] # TODO TEMP
   )
@@ -39,9 +39,13 @@ module ListingService::Store::Shape
     [:sort_priority, :fixnum]
   )
 
-  Unit = EntityUtils.define_builder(
-    [:type, :to_symbol, one_of: [:piece, :hour, :day, :night, :week, :month, :custom]],
-    [:translation_key, :optional] # Mandatory if custom
+  BuiltInUnit = EntityUtils.define_builder(
+    [:type, :to_symbol, one_of: [:piece, :hour, :day, :night, :week, :month]]
+  )
+
+  CustomUnit = EntityUtils.define_builder(
+    [:type, :to_symbol, one_of: [:custom]],
+    [:translation_key, :string, :mandatory]
   )
 
   module_function
@@ -65,15 +69,12 @@ module ListingService::Store::Shape
   def create(community_id:, opts:)
     shape = NewShape.call(opts.merge(community_id: community_id))
 
-    units = shape[:units].map { |unit| Unit.call(unit) }
-
-    name = uniq_name(shape[:basename], shape[:community_id])
-    shape_with_name = shape.except(:basename).merge(name: name)
+    units = shape[:units].map { |unit| to_unit(unit) }
 
     ActiveRecord::Base.transaction do
 
       # Save to ListingShape model
-      shape_model = ListingShape.create!(shape_with_name.except(:units))
+      shape_model = create!(shape.except(:units))
 
       # Save units
       units.each { |unit|
@@ -94,7 +95,7 @@ module ListingService::Store::Shape
     update_shape = UpdateShape.call(opts.merge(community_id: community_id))
 
     skip_units = update_shape[:units].nil?
-    units = update_shape[:units].map { |unit| Unit.call(unit) } unless skip_units
+    units = update_shape[:units].map { |unit| to_unit(unit) } unless skip_units
 
     ActiveRecord::Base.transaction do
       unless skip_units
@@ -103,7 +104,7 @@ module ListingService::Store::Shape
       end
 
       # Save to ListingShape model
-      shape_model.update_attributes!(HashUtils.compact(update_shape).except(:units))
+      shape_model = update!(shape_model, HashUtils.compact(update_shape).except(:units))
     end
 
     from_model(shape_model)
@@ -111,12 +112,43 @@ module ListingService::Store::Shape
 
   # private
 
+  def create!(opts)
+    model = ListingShape.new(opts.except(:units))
+    save!(model)
+  end
+
+  def update!(model, opts)
+    model.assign_attributes(opts)
+    save!(model)
+  end
+
+  def save!(model)
+    if model.valid?
+      model.tap { |m| m.save! }
+    else
+      raise ArgumentError.new("Validation failed: #{model.errors.messages}")
+    end
+  end
+
+  def to_unit(hash)
+    type = Maybe(hash)[:type].to_sym.or_else(nil)
+
+    case type
+    when nil
+      raise ArgumentError.new("Expected unit hash with type. Instead got this hash: #{hash}")
+    when :custom
+      CustomUnit.call(hash)
+    else
+      BuiltInUnit.call(hash)
+    end
+  end
+
   def from_model(shape_model)
     Maybe(shape_model).map { |m|
       hash = EntityUtils.model_to_hash(m)
 
       hash[:units] = shape_model.listing_units.map { |unit_model|
-        Unit.call(from_unit_model_attributes(EntityUtils.model_to_hash(unit_model)))
+        to_unit(from_unit_model_attributes(EntityUtils.model_to_hash(unit_model)))
       }
 
       Shape.call(hash)
@@ -144,22 +176,4 @@ module ListingService::Store::Shape
   def find_shape_models(community_id:)
     ListingShape.where(community_id: community_id).order(:sort_priority)
   end
-
-  def uniq_name(name_source, community_id)
-    blacklist = ['new', 'all']
-    current_name = name_source.to_url
-    base_name = current_name
-
-    shapes = find_shape_models(community_id: community_id)
-
-    i = 1
-    while blacklist.include?(current_name) || shapes.find { |s| s[:name] == current_name }.present? do
-      current_name = "#{base_name}#{i}"
-      i += 1
-    end
-    current_name
-
-  end
-
-
 end

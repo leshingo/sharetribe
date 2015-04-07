@@ -35,6 +35,8 @@ class ListingShape < ActiveRecord::Base
     :price_quantity_placeholder,
   )
 
+  validates_uniqueness_of :name, :scope => :community_id
+
   has_many :listing_units
 
   def self.columns
